@@ -4,7 +4,7 @@ import { Resource } from '@medplum/fhirtypes';
 import { ResourceForm, useMedplum } from '@medplum/react';
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
-import { FC, useState } from 'react';
+import React, { FC, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface CreateTaskModalProps {
@@ -17,10 +17,15 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true,
 });
 
-const ButWhatifAI: FC = () => {
+const ButWhatifAI: FC<{ setDefaultResource: React.Dispatch<React.SetStateAction<Resource>> }> = ({
+  setDefaultResource,
+}) => {
   const [taskInput, setTaskInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   async function doTheThing(): Promise<void> {
+    setIsLoading(true);
+
     const messages: ChatCompletionMessageParam[] = [
       {
         role: 'system',
@@ -37,7 +42,7 @@ const ButWhatifAI: FC = () => {
           'Write a description for this task',
           'What is the location for this task?',
           'Why is this task needed?',
-          'What is the intent of this task out of ["Unknown", "Proposal", "Plan", "Order", "Original Order", "Reflex Order", "Instance Order", "Option"]?',
+          'What is the intent of this task out of ["unknown", "proposal", "plan", "order", "original-order", "reflex-order", "instance-order", "option"]?',
           'respond in json',
         ].join('\n'),
       },
@@ -48,16 +53,53 @@ const ButWhatifAI: FC = () => {
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo-0125',
       messages,
+      response_format: { type: 'json_object' },
+    });
+    const response = JSON.parse(completion.choices[0].message.content ?? '{}') as {
+      priority: 'Routine' | 'Urgent' | 'ASAP' | 'STAT';
+      description: string;
+      location: string;
+      reason: string;
+      intent:
+        | 'unknown'
+        | 'proposal'
+        | 'plan'
+        | 'order'
+        | 'original-order'
+        | 'reflex-order'
+        | 'instance-order'
+        | 'option';
+    };
+
+    console.log({
+      resourceType: 'Task',
+      status: 'requested',
+      description: response.description,
+      priority: response.priority.toLowerCase() as 'routine' | 'urgent' | 'asap' | 'stat',
+      intent: response.intent,
+      authoredOn: new Date().toISOString(),
+      //   location: response.location,
     });
 
-    console.log(completion.choices[0].message.content);
+    setDefaultResource({
+      resourceType: 'Task',
+      status: 'requested',
+      description: response.description,
+      priority: response.priority.toLowerCase() as 'routine' | 'urgent' | 'asap' | 'stat',
+      intent: response.intent,
+      authoredOn: new Date().toISOString(),
+      //   location: response.location,
+    });
+    setIsLoading(false);
   }
 
   return (
     <Box p={4}>
       <Title order={4}>But what if AI?</Title>
       <Textarea placeholder="What needs doing?" onChange={(e) => setTaskInput(e.currentTarget.value)}></Textarea>
-      <Button onClick={doTheThing}>Prefill</Button>
+      <Button onClick={doTheThing} loading={isLoading}>
+        Prefill
+      </Button>
     </Box>
   );
 };
@@ -69,7 +111,7 @@ export function CreateTaskModal(props: CreateTaskModalProps): JSX.Element {
   const resourceType = location.pathname.split('/')[1];
 
   // Create a default resource with the correct resourceType
-  const defaultResource = { resourceType } as Resource;
+  const [defaultResource, setDefaultResource] = useState({ resourceType } as Resource);
 
   // Function to create the resource and navigate to the resource page when the form is submitted
   const handleSubmit = (newResource: Resource): void => {
@@ -82,8 +124,12 @@ export function CreateTaskModal(props: CreateTaskModalProps): JSX.Element {
   return (
     <Modal opened={props.opened} onClose={props.onClose}>
       <Text>New {resourceType}</Text>
-      <ButWhatifAI />
-      <ResourceForm defaultValue={defaultResource} onSubmit={handleSubmit}></ResourceForm>
+      <ButWhatifAI setDefaultResource={setDefaultResource} />
+      {defaultResource.status ? (
+        <ResourceForm defaultValue={defaultResource} onSubmit={handleSubmit}></ResourceForm>
+      ) : (
+        'try ai first'
+      )}
     </Modal>
   );
 }
