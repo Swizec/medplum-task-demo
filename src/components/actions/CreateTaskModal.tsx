@@ -1,13 +1,24 @@
-import { Modal, Text } from '@mantine/core';
+import { Box, Button, Modal, Text, Textarea, Title } from '@mantine/core';
 import { getReferenceString } from '@medplum/core';
 import { Resource } from '@medplum/fhirtypes';
 import { ResourceForm, useMedplum } from '@medplum/react';
+import { FC } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface CreateTaskModalProps {
   readonly opened: boolean;
   readonly onClose: () => void;
 }
+
+const ButWhatifAI: FC = () => {
+  return (
+    <Box p={4}>
+      <Title order={4}>But what if AI?</Title>
+      <Textarea placeholder="What needs doing?"></Textarea>
+      <Button>Prefill</Button>
+    </Box>
+  );
+};
 
 export function CreateTaskModal(props: CreateTaskModalProps): JSX.Element {
   const navigate = useNavigate();
@@ -29,6 +40,7 @@ export function CreateTaskModal(props: CreateTaskModalProps): JSX.Element {
   return (
     <Modal opened={props.opened} onClose={props.onClose}>
       <Text>New {resourceType}</Text>
+      <ButWhatifAI />
       <ResourceForm defaultValue={defaultResource} onSubmit={handleSubmit}></ResourceForm>
     </Modal>
   );
