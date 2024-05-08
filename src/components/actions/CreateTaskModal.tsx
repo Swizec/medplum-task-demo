@@ -1,6 +1,6 @@
 import { Box, Button, Modal, Text, Textarea, Title } from '@mantine/core';
 import { getReferenceString } from '@medplum/core';
-import { Resource } from '@medplum/fhirtypes';
+import { Resource, Task } from '@medplum/fhirtypes';
 import { ResourceForm, useMedplum } from '@medplum/react';
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
@@ -25,71 +25,83 @@ const ButWhatifAI: FC<{ setDefaultResource: React.Dispatch<React.SetStateAction<
 
   async function doTheThing(): Promise<void> {
     setIsLoading(true);
+    let success = false;
+    let taskResource: Task = {} as Task;
 
-    const messages: ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: 'You are a medical assistant filling out a task creation form',
-      },
-      {
-        role: 'user',
-        content: `Here's a task I need help with:\n${taskInput}`,
-      },
-      {
-        role: 'user',
-        content: [
-          'What is the priority of this task out of ["Routine", "Urgent", "ASAP", "STAT"]?',
-          'Write a description for this task',
-          'What is the location for this task?',
-          'Why is this task needed?',
-          'What is the intent of this task out of ["unknown", "proposal", "plan", "order", "original-order", "reflex-order", "instance-order", "option"]?',
-          'respond in json',
-        ].join('\n'),
-      },
-    ];
+    do {
+      const messages: ChatCompletionMessageParam[] = [
+        {
+          role: 'system',
+          content: 'You are a medical assistant filling out a task creation form',
+        },
+        {
+          role: 'user',
+          content: `Here's a task I need help with:\n${taskInput}`,
+        },
+        {
+          role: 'user',
+          content: [
+            'What is the priority of this task out of ["Routine", "Urgent", "ASAP", "STAT"]?',
+            'Write a description for this task',
+            'What is the location for this task?',
+            'What is the ICD-10 reason code for this task?',
+            'What is the intent of this task out of ["unknown", "proposal", "plan", "order", "original-order", "reflex-order", "instance-order", "option"]?',
+            'respond in json with shape { priority: string, description: string, location: string, icd_10_code: string, intent: string }',
+          ].join('\n'),
+        },
+      ];
 
-    console.log(messages);
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo-0125',
+        messages,
+        response_format: { type: 'json_object' },
+      });
+      console.log(completion);
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-0125',
-      messages,
-      response_format: { type: 'json_object' },
-    });
-    const response = JSON.parse(completion.choices[0].message.content ?? '{}') as {
-      priority: 'Routine' | 'Urgent' | 'ASAP' | 'STAT';
-      description: string;
-      location: string;
-      reason: string;
-      intent:
-        | 'unknown'
-        | 'proposal'
-        | 'plan'
-        | 'order'
-        | 'original-order'
-        | 'reflex-order'
-        | 'instance-order'
-        | 'option';
-    };
+      const response = JSON.parse(completion.choices[0].message.content ?? '{}') as {
+        priority: 'Routine' | 'Urgent' | 'ASAP' | 'STAT';
+        description: string;
+        location: string;
+        icd_10_code: string;
+        intent:
+          | 'unknown'
+          | 'proposal'
+          | 'plan'
+          | 'order'
+          | 'original-order'
+          | 'reflex-order'
+          | 'instance-order'
+          | 'option';
+      };
+      console.log(response);
 
-    console.log({
-      resourceType: 'Task',
-      status: 'requested',
-      description: response.description,
-      priority: response.priority.toLowerCase() as 'routine' | 'urgent' | 'asap' | 'stat',
-      intent: response.intent,
-      authoredOn: new Date().toISOString(),
-      //   location: response.location,
-    });
+      try {
+        taskResource = {
+          resourceType: 'Task',
+          status: 'requested',
+          description: response.description,
+          priority: response.priority.toLowerCase() as 'routine' | 'urgent' | 'asap' | 'stat',
+          intent: response.intent,
+          authoredOn: new Date().toISOString(),
+          reasonCode: {
+            coding: [
+              {
+                system: 'http://hl7.org/fhir/sid/icd-10',
+                code: response.icd_10_code,
+                display: `ICD-10: ${response.icd_10_code}`,
+              },
+            ],
+            text: `ICD-10: ${response.icd_10_code}`,
+          },
+        };
+        success = true;
+      } catch (e) {
+        console.error(e);
+        success = false;
+      }
+    } while (!success);
 
-    setDefaultResource({
-      resourceType: 'Task',
-      status: 'requested',
-      description: response.description,
-      priority: response.priority.toLowerCase() as 'routine' | 'urgent' | 'asap' | 'stat',
-      intent: response.intent,
-      authoredOn: new Date().toISOString(),
-      //   location: response.location,
-    });
+    setDefaultResource(taskResource);
     setIsLoading(false);
   }
 
